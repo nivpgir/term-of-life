@@ -70,62 +70,65 @@ fn main() {
     writeln!(stdout,"{}", termion::clear::All).unwrap();
 
     let mut colony = Colony::new();
+    let glider: Vec<(u16,u16)> = vec![
+                (1,0),
+                        (2,1),
+        (0,2),  (1,2),  (2,2)]
+        .into_iter()
+        .map(|(x,y)| (x+15,y+20)).collect();
+
+    colony = Colony{
+        grid: glider.into_iter().map(|c|Cell{location: c}).collect()
+    };
     let mut events = stdin.events();
+    let mut i = 0;
     loop {
         let evt = events.by_ref().next();
         match evt {
             Some(Ok(Event::Key(Key::Char('q')))) => break,
-            // this will be changed to any event, not just mouse events
+            // any other event:
             Some(Ok(evt)) => {
-                colony = handle_input(evt, colony.grid);
-                ();
+                colony = handle_input(evt, colony);
             },
             _ => (),
         }
-        for (x,y) in colony.grid.into_iter().map(|c|c.location).collect(){
-            write!(stdout,
-                   "{}{}",
-                   cursor::Goto(*x,*y),
-                   "x")
-                .unwrap();
-        }
-        
+        redraw_screen(&colony);
+        colony = colony.next_gen();
+        i += 1;
         let (x,y) = termion::terminal_size().unwrap();
-        write!(stdout,"{}",cursor::Goto(x,y)).unwrap();
+        write!(stdout,"{}",cursor::Goto(1,1)).unwrap();
         stdout.flush().unwrap();            
-        std::thread::sleep(std::time::Duration::new(0,500));
-
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     
 }
 
-fn handle_input(e: Event, mut colony: HashSet<Cell>) -> HashSet<Cell>{
-    match e {
-        Event::Mouse(me) => {
-            match me {
-                MouseEvent::Press(_, a, b) |
-                MouseEvent::Release(a, b) |
-                MouseEvent::Hold(a, b) => {
-                    colony.insert(Cell{location:(a,b)}); colony
+fn handle_input(e: Event, mut colony: Colony) -> Colony{
+    Colony{
+        grid: match e {
+            Event::Mouse(me) => {
+                match me {
+                    MouseEvent::Press(_, a, b) |
+                    MouseEvent::Release(a, b) |
+                    MouseEvent::Hold(a, b) => {
+                        colony.grid.insert(Cell{location:(a,b)}); colony.grid
+                    }
                 }
-            }
-        },
-        _ => colony,
+            },
+            _ => colony.grid,
+        }
     }
 }
 
 
-fn draw_screen(cells: &HashMap<(&u16,&u16), Cell>) {
+fn redraw_screen(colony: &Colony) {
     let mut stdout = MouseTerminal::from(io::stdout().into_raw_mode().unwrap());
-    for ((x,y), cell) in cells{
-        let cell_str = match cell.state {
-            State::Alive => "x",
-            State::Dead => ""
-        };
+    write!(stdout,"{}", termion::clear::All).unwrap();
+    for (x,y) in colony.grid.iter().map(|c|c.location){
         write!(stdout,
                "{}{}",
-               cursor::Goto(**x,**y),
-               cell_str)
+               cursor::Goto(x,y),
+               "x")
             .unwrap();
     }
     cursor::Goto(1,1);
