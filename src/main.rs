@@ -1,5 +1,6 @@
 extern crate termion;
 
+use std::sync::mpsc;
 use termion::event::*;
 use termion::cursor::{self, DetectCursorPos};
 use std::collections::HashMap;
@@ -49,7 +50,7 @@ impl Colony {
         ncnt
     }
     
-    fn next_gen(self) -> Self{
+    fn next_gen(&self) -> Self{
         Self{
             grid: self.neighbour_count()
                 .into_iter()
@@ -65,64 +66,76 @@ impl Colony {
 }
 
 fn main() {
-    let stdin = termion::async_stdin();
+    let stdin = std::io::stdin();
     let mut stdout = MouseTerminal::from(io::stdout().into_raw_mode().unwrap());
     writeln!(stdout,"{}", termion::clear::All).unwrap();
 
-    let mut colony = Colony::new();
+    // setup a thread to handle events
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move ||{
+        for evt in stdin.events(){
+            match evt {
+                Ok(Event::Key(Key::Char('q'))) => break,
+                // any other event:
+                Ok(evt) => {
+                    handle_input(evt, &tx);
+                },
+                _ => (),
+            }
+        }
+    });
+    // setup initial colony
     let glider: Vec<(u16,u16)> = vec![
-                (1,0),
-                        (2,1),
+        (1,0),
+        (2,1),
         (0,2),  (1,2),  (2,2)]
         .into_iter()
         .map(|(x,y)| (x+15,y+20)).collect();
-
-    colony = Colony{
+    let colony = Colony{
         grid: glider.into_iter().map(|c|Cell{location: c}).collect()
     };
-    let mut events = stdin.events();
-    let mut i = 0;
-    loop {
-        let evt = events.by_ref().next();
-        match evt {
-            Some(Ok(Event::Key(Key::Char('q')))) => break,
-            // any other event:
-            Some(Ok(evt)) => {
-                colony = handle_input(evt, colony);
-            },
-            _ => (),
+    loop{
+        let mut colony = colony.next_gen();
+        let evts = rx.try_recv();
+        match evts {
+            Err(mpsc::TryRecvError::Empty) => (),
+            Err(mpsc::TryRecvError::Disconnected) => break,
+            Ok(cell) => {colony.grid.insert(cell);},
+            
         }
         redraw_screen(&colony);
-        colony = colony.next_gen();
-        i += 1;
         let (x,y) = termion::terminal_size().unwrap();
-        write!(stdout,"{}",cursor::Goto(1,1)).unwrap();
+        write!(stdout,"{}",cursor::Goto(x,y)).unwrap();
         stdout.flush().unwrap();            
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
     
 }
 
-fn handle_input(e: Event, mut colony: Colony) -> Colony{
-    Colony{
-        grid: match e {
-            Event::Mouse(me) => {
-                match me {
-                    MouseEvent::Press(_, a, b) |
-                    MouseEvent::Release(a, b) |
-                    MouseEvent::Hold(a, b) => {
-                        colony.grid.insert(Cell{location:(a,b)}); colony.grid
-                    }
+fn handle_input(e: Event, tx: &std::sync::mpsc::Sender<Cell>){
+    // Colony{
+    // grid:
+    match e {
+        Event::Key(Key::Char('q')) => drop(tx),
+        Event::Mouse(me) => {
+            match me {
+                MouseEvent::Press(_, a, b) |
+                MouseEvent::Release(a, b) |
+                MouseEvent::Hold(a, b) => {
+                    tx.send(Cell{location: (a,b)});
+                    // colony.grid.insert(Cell{location:(a,b)}); colony.grid
                 }
-            },
-            _ => colony.grid,
-        }
+            }
+        },
+        _ => (),
+        // }
+        // }
     }
 }
 
-
 fn redraw_screen(colony: &Colony) {
-    let mut stdout = MouseTerminal::from(io::stdout().into_raw_mode().unwrap());
+    // let mut stdout = MouseTerminal::from(io::stdout().into_raw_mode().unwrap());
+    let mut stdout = io::stdout().into_raw_mode().unwrap();
     write!(stdout,"{}", termion::clear::All).unwrap();
     for (x,y) in colony.grid.iter().map(|c|c.location){
         write!(stdout,
