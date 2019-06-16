@@ -70,40 +70,35 @@ fn main() {
     let mut stdout = MouseTerminal::from(io::stdout().into_raw_mode().unwrap());
     writeln!(stdout,"{}", termion::clear::All).unwrap();
 
-    // setup a thread to handle events
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move ||{
-        for evt in stdin.events(){
-            match evt {
-                Ok(Event::Key(Key::Char('q'))) => break,
-                // any other event:
-                Ok(evt) => {
-                    handle_input(evt, &tx);
-                },
-                _ => (),
-            }
-        }
-    });
-    // setup initial colony
     let glider: Vec<(u16,u16)> = vec![
         (1,0),
         (2,1),
         (0,2),  (1,2),  (2,2)]
         .into_iter()
         .map(|(x,y)| (x+15,y+20)).collect();
-    let colony = Colony{
+
+    let mut colony = Colony{
         grid: glider.into_iter().map(|c|Cell{location: c}).collect()
     };
-    loop{
-        let mut colony = colony.next_gen();
-        let evts = rx.try_recv();
-        match evts {
-            Err(mpsc::TryRecvError::Empty) => (),
-            Err(mpsc::TryRecvError::Disconnected) => break,
-            Ok(cell) => {colony.grid.insert(cell);},
-            
-        }
-        redraw_screen(&colony);
+    let mut events = stdin.events();
+    loop {
+        let mut evt = events.by_ref().next();
+        let mut cont = true;
+        while let Some(e) = evt {
+            evt = events.by_ref().next();
+            cont = match e {
+                Ok(Event::Key(Key::Char('q'))) => false,
+                // any other event:
+                Ok(e) => {
+                    colony = handle_input(e, colony);
+                    true
+                },
+                _ => true,
+            };
+        };
+        if ! cont {break};
+        redraw_screen(&mut stdout, &colony);
+        colony = colony.next_gen();
         let (x,y) = termion::terminal_size().unwrap();
         write!(stdout,"{}",cursor::Goto(x,y)).unwrap();
         stdout.flush().unwrap();            
@@ -133,10 +128,11 @@ fn handle_input(e: Event, tx: &std::sync::mpsc::Sender<Cell>){
     }
 }
 
-fn redraw_screen(colony: &Colony) {
+
+fn redraw_screen<W>(screen: &mut W, colony: &Colony) where W: Write{
     // let mut stdout = MouseTerminal::from(io::stdout().into_raw_mode().unwrap());
     let mut stdout = io::stdout().into_raw_mode().unwrap();
-    write!(stdout,"{}", termion::clear::All).unwrap();
+    write!(*screen,"{}", termion::clear::All).unwrap();
     for (x,y) in colony.grid.iter().map(|c|c.location){
         write!(stdout,
                "{}{}",
