@@ -33,7 +33,7 @@ fn main() {
         i += 1;
         while let Some(inp) = events.by_ref().next() {
             if let Ok(evt) = inp {
-                if let Some(action) = handle_input(evt, &colony){
+                if let Some(action) = handle_input(evt){
                     match do_action(action, colony){
                         Some(col) => {colony = col;},
                         None => return
@@ -89,7 +89,7 @@ fn do_action(a: Action, mut col: Colony) -> Option<Colony> {
 }
 
 
-fn handle_input(e: Event, col: &Colony) -> Option<Action>{
+fn handle_input(e: Event) -> Option<Action>{
     match e {
         Event::Key(Key::Char('q')) => Some(Action::Quit),
         Event::Key(Key::Char('p')) => Some(Action::Pause),
