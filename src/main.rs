@@ -28,9 +28,7 @@ fn main() {
         is_paused: true,
     };
     let mut events = stdin.events();
-    let mut i = 0;
     loop {
-        i += 1;
         while let Some(inp) = events.by_ref().next() {
             if let Ok(evt) = inp {
                 if let Some(action) = handle_input(evt){
@@ -45,7 +43,7 @@ fn main() {
         };
         redraw_screen(&mut stdout, &colony);
         // write!(stdout,"{}{}{}",cursor::Goto(1,1), i, colony.is_paused).unwrap();
-        if ! colony.is_paused { i += 1; colony = colony.next_gen(); }
+        if ! colony.is_paused { colony = colony.next_gen(); }
         let (x,y) = termion::terminal_size().unwrap();
         write!(stdout,"{}",cursor::Goto(x,y)).unwrap();
         // write!(stdout,"{}{}",cursor::Goto(1,2), colony.is_paused).unwrap();
