@@ -11,14 +11,116 @@ use termion::raw::IntoRawMode;
 use std::io::{self, Write};
 
 
+fn main() {
+    let stdin = termion::async_stdin();
+    let mut stdout = MouseTerminal::from(io::stdout().into_raw_mode().unwrap());
+    writeln!(stdout,"{}", termion::clear::All).unwrap();
 
+    let glider: Vec<(u16,u16)> = vec![
+        (1,0),
+        (2,1),
+        (0,2),  (1,2),  (2,2)]
+        .into_iter()
+        .map(|(x,y)| (x+15,y+20)).collect();
+
+    let mut colony = Colony{
+        grid: glider.into_iter().map(|c|Cell{location: c}).collect(),
+        is_paused: true,
+    };
+    let mut events = stdin.events();
+    let mut i = 0;
+    loop {
+        i += 1;
+        while let Some(inp) = events.by_ref().next() {
+            if let Ok(evt) = inp {
+                if let Some(action) = handle_input(evt, &colony){
+                    match do_action(action, colony){
+                        Some(col) => {colony = col;},
+                        None => return
+                    }
+                }
+            } else {
+                continue;
+            };
+        };
+        redraw_screen(&mut stdout, &colony);
+        // write!(stdout,"{}{}{}",cursor::Goto(1,1), i, colony.is_paused).unwrap();
+        if ! colony.is_paused { i += 1; colony = colony.next_gen(); }
+        let (x,y) = termion::terminal_size().unwrap();
+        write!(stdout,"{}",cursor::Goto(x,y)).unwrap();
+        // write!(stdout,"{}{}",cursor::Goto(1,2), colony.is_paused).unwrap();
+        stdout.flush().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+pub enum Action{
+    Step,
+    Pause,
+    Continue,
+    Quit,
+    Restart,
+    Put(u16,u16),
+    Remove(u16,u16)
+}
+
+fn do_action(a: Action, mut col: Colony) -> Option<Colony> {
+    match a {
+        Action::Step =>Some(Colony{
+            is_paused: true,
+            grid: col.next_gen().grid
+        }),
+        Action::Pause => Some(Colony{
+            is_paused: true,
+            ..col
+        }),
+        Action::Continue => Some(Colony{
+            is_paused: false,
+            ..col
+        }),
+        Action::Quit => None,
+        Action::Restart => Some(Colony{
+            grid: HashSet::new(),
+            ..col
+        }),
+        Action::Put(a,b) => {col.grid.insert(Cell{location: (a,b)}); Some(col)},
+        Action::Remove(a,b) => {col.grid.remove(&Cell{location: (a,b)}); Some(col)},
+    }
+}
+
+
+fn handle_input(e: Event, col: &Colony) -> Option<Action>{
+    match e {
+        Event::Key(Key::Char('q')) => Some(Action::Quit),
+        Event::Key(Key::Char('p')) => Some(Action::Pause),
+        Event::Key(Key::Char('c')) => Some(Action::Continue),
+        Event::Key(Key::Char('r')) => Some(Action::Restart),
+        Event::Key(Key::Char('s')) => Some(Action::Step),
+        Event::Mouse(me) => {
+            match me {
+                MouseEvent::Press(button, a, b) => {
+                    if button == MouseButton::Right {
+                        Some(Action::Remove(a,b))
+                    } else {
+                        Some(Action::Put(a,b))
+                    }
+                },
+                // MouseEvent::Release(a, b) |
+                MouseEvent::Hold(a, b) => Some(Action::Put(a,b)),
+                _ => None,
+            }
+        }
+        _ => None
+    }
+}
 #[derive(PartialEq, Eq, Hash, Debug)]
 pub struct Cell{
     location: (u16,u16),
 }
 
 pub struct Colony {
-    grid: HashSet<Cell>
+    grid: HashSet<Cell>,
+    is_paused: bool,
 }
 
 impl Cell{
@@ -39,6 +141,7 @@ impl Colony {
     fn new() -> Self{
         Self{
             grid: HashSet::new(),
+            is_paused: true,
         }
     }
     
@@ -60,73 +163,15 @@ impl Colony {
                                 (_, 3) => Some(cell),
                                 _ => None
                             })
-                .collect()
+                .collect(),
+            ..self
         }
     }
 }
 
-fn main() {
-    let stdin = std::io::stdin();
-    let mut stdout = MouseTerminal::from(io::stdout().into_raw_mode().unwrap());
-    writeln!(stdout,"{}", termion::clear::All).unwrap();
 
-    let glider: Vec<(u16,u16)> = vec![
-        (1,0),
-        (2,1),
-        (0,2),  (1,2),  (2,2)]
-        .into_iter()
-        .map(|(x,y)| (x+15,y+20)).collect();
 
-    let mut colony = Colony{
-        grid: glider.into_iter().map(|c|Cell{location: c}).collect()
-    };
-    let mut events = stdin.events();
-    loop {
-        let mut evt = events.by_ref().next();
-        let mut cont = true;
-        while let Some(e) = evt {
-            evt = events.by_ref().next();
-            cont = match e {
-                Ok(Event::Key(Key::Char('q'))) => false,
-                // any other event:
-                Ok(e) => {
-                    colony = handle_input(e, colony);
-                    true
-                },
-                _ => true,
-            };
-        };
-        if ! cont {break};
-        redraw_screen(&mut stdout, &colony);
-        colony = colony.next_gen();
-        let (x,y) = termion::terminal_size().unwrap();
-        write!(stdout,"{}",cursor::Goto(x,y)).unwrap();
-        stdout.flush().unwrap();            
-        std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-    
-}
 
-fn handle_input(e: Event, tx: &std::sync::mpsc::Sender<Cell>){
-    // Colony{
-    // grid:
-    match e {
-        Event::Key(Key::Char('q')) => drop(tx),
-        Event::Mouse(me) => {
-            match me {
-                MouseEvent::Press(_, a, b) |
-                MouseEvent::Release(a, b) |
-                MouseEvent::Hold(a, b) => {
-                    tx.send(Cell{location: (a,b)});
-                    // colony.grid.insert(Cell{location:(a,b)}); colony.grid
-                }
-            }
-        },
-        _ => (),
-        // }
-        // }
-    }
-}
 
 
 fn redraw_screen<W>(screen: &mut W, colony: &Colony) where W: Write{
